@@ -55,21 +55,33 @@ namespace UDIE.EHLM.MicroserviceHost
                 Console.WriteLine($"[{_serviceInfo.Name}] Declared exchange '{exchangeName}' of type '{exchangeType}'.");
             }
 
-            // For each incoming queue for this service, declare it and bind it to the correct exchange
-            foreach (var queueName in _serviceInfo.IncomingQueues)
+            // For each incoming "queue" (which is really an exchange in our design) for this service...
+            foreach (var exchangeName in _serviceInfo.IncomingQueues)
             {
-                // The queue name is the same as the exchange/routing key in our design
-                _channel.QueueDeclare(queue: queueName, durable: true, exclusive: false, autoDelete: false, arguments: null);
+                var exchangeType = _rabbitMqConfig.GetValueOrDefault(exchangeName)?.Type ?? "direct";
+                var routingKey = exchangeType == "fanout" ? "" : exchangeName; // Fanout ignores routing key
 
-                // Bind the queue to the exchange. The routing key for fanout is empty.
-                // For direct, the routing key is the queue name itself.
-                var exchangeType = _rabbitMqConfig.GetValueOrDefault(queueName)?.Type ?? "direct";
-                var routingKey = exchangeType == "fanout" ? "" : queueName;
+                string queueNameToConsume;
 
-                _channel.QueueBind(queue: queueName, exchange: queueName, routingKey: routingKey);
-                Console.WriteLine($"[{_serviceInfo.Name}] Bound queue '{queueName}' to exchange '{queueName}'.");
+                if (exchangeType == "fanout")
+                {
+                    // For FANOUT, each service needs its OWN queue to get a copy of all messages.
+                    // We'll create a transient, exclusive, auto-deleting queue for this consumer.
+                    queueNameToConsume = $"{exchangeName}_{_serviceInfo.Name}_{Guid.NewGuid()}"; // Unique queue name
+                    _channel.QueueDeclare(queue: queueNameToConsume, durable: false, exclusive: true, autoDelete: true, arguments: null);
+                }
+                else
+                {
+                    // For DIRECT, services consume from a shared, well-known queue.
+                    queueNameToConsume = exchangeName;
+                    _channel.QueueDeclare(queue: queueNameToConsume, durable: true, exclusive: false, autoDelete: false, arguments: null);
+                }
 
-                // Start listening for messages
+                // Bind the queue to the exchange
+                _channel.QueueBind(queue: queueNameToConsume, exchange: exchangeName, routingKey: routingKey);
+                Console.WriteLine($"[{_serviceInfo.Name}] Bound queue '{queueNameToConsume}' to exchange '{exchangeName}'.");
+
+                // Start listening for messages on the declared queue
                 var consumer = new EventingBasicConsumer(_channel);
                 consumer.Received += (model, ea) =>
                 {
@@ -77,7 +89,8 @@ namespace UDIE.EHLM.MicroserviceHost
                     var message = Encoding.UTF8.GetString(body);
 
                     Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"[{_serviceInfo.Name}] Received on '{queueName}' via '{ea.Exchange}': '{message}'");
+                    // Use queueNameToConsume in the log message for clarity
+                    Console.WriteLine($"[{_serviceInfo.Name}] Received on '{queueNameToConsume}' via '{ea.Exchange}': '{message}'");
                     Console.ResetColor();
 
                     HandleReceivedMessage(message);
@@ -85,18 +98,39 @@ namespace UDIE.EHLM.MicroserviceHost
                     _channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);
                 };
 
-                _channel.BasicConsume(queue: queueName, autoAck: false, consumer: consumer);
-                Console.WriteLine($"[{_serviceInfo.Name}] Listening for messages on '{queueName}'.");
+                _channel.BasicConsume(queue: queueNameToConsume, autoAck: false, consumer: consumer);
+                Console.WriteLine($"[{_serviceInfo.Name}] Listening for messages on '{queueNameToConsume}'.");
             }
         }
 
         private void HandleReceivedMessage(string message)
         {
+            // AuthService logic: When a command is received, it publishes an event.
             if (_serviceInfo.Name == "AuthService" && message == "RegisterUser")
             {
                 var responseEvent = "UserRegistered";
-                // Publish to the 'system_events' exchange.
                 PublishMessage(responseEvent, "system_events");
+                return; // End processing for this service
+            }
+
+            // Logic for other services reacting to the "UserRegistered" event.
+            if (message == "UserRegistered")
+            {
+                switch (_serviceInfo.Name)
+                {
+                    case "UserService":
+                        var newUserEvent = "UserProfileCreated";
+                        // UserService publishes its own event after processing.
+                        PublishMessage(newUserEvent, "user_events");
+                        break;
+
+                    case "NotificationService":
+                        // NotificationService just logs a more descriptive action.
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine($"[{_serviceInfo.Name}] Simulating: sending welcome email for new user.");
+                        Console.ResetColor();
+                        break;
+                }
             }
         }
 

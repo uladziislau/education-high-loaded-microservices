@@ -11,7 +11,7 @@
       "Name": "UserService",
       "Queries": [ "GetUserProfile" ],
       "IncomingQueues": [ "system_events", "user_queries" ],
-      "OutgoingQueues": []
+      "OutgoingQueues": [ "user_events" ]
     },
     {
       "Name": "NotificationService",
@@ -28,6 +28,9 @@
     },
     "system_events": {
       "type": "fanout"
+    },
+    "user_events": {
+      "type": "direct"
     }
   }
 }
