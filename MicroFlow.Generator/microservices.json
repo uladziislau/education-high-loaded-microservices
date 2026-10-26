@@ -1,0 +1,42 @@
+{
+  "Microservices": [
+    {
+      "Name": "AuthService",
+      "Replicas": 2,
+      "Commands": [ "RegisterUser" ],
+      "Events": [ "UserRegistered" ],
+      "IncomingQueues": [ "auth_commands" ],
+      "OutgoingQueues": [ "system_events", "metrics_events" ]
+    },
+    {
+      "Name": "UserService",
+      "Replicas": 2,
+      "Queries": [ "GetUserProfile" ],
+      "IncomingQueues": [ "system_events", "user_queries" ],
+      "OutgoingQueues": [ "user_events", "metrics_events" ]
+    },
+    {
+      "Name": "NotificationService",
+      "Replicas": 1,
+      "IncomingQueues": [ "system_events" ],
+      "OutgoingQueues": [ "metrics_events" ]
+    }
+  ],
+  "RabbitMQQueues": {
+    "auth_commands": {
+      "type": "direct"
+    },
+    "user_queries": {
+      "type": "direct"
+    },
+    "system_events": {
+      "type": "fanout"
+    },
+    "user_events": {
+      "type": "direct"
+    },
+    "metrics_events": {
+      "type": "fanout"
+    }
+  }
+}
