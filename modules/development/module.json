@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "project": "education-high-loaded-microservices",
+  "remote": "uladziislau/education-high-loaded-microservices",
+  "class": "research",
+  "lifecycle": "active",
+  "stateSource": {
+    "type": "backlog",
+    "path": "data/modules/development/tasks.development.json"
+  },
+  "adapter": {
+    "type": "data-only"
+  }
+}
